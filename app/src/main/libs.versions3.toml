@@ -1,0 +1,6 @@
+toml
+[versions]
+compose-compiler = "1.5.1" # Use the appropriate version
+
+[plugins]
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "compose-compiler" }

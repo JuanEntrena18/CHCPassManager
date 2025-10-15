@@ -1,0 +1,22 @@
+toml
+# This block is for defining reusable versions.
+# All version definitions should go under this single [versions] block.
+[versions]
+agp = "8.2.0"
+kotlin = "1.9.0"
+coreKtx = "1.10.1"
+# ... other versions
+
+# This block is for defining the dependencies.
+# All library definitions should go under this single [libraries] block.
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version = "1.6.1" }
+# ... other libraries
+
+# This block is for defining Gradle plugins.
+# All plugin definitions should go under this single [plugins] block.
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+# ... other plugins

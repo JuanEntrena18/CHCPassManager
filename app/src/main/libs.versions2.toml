@@ -1,0 +1,7 @@
+toml
+[versions]
+kotlin = "2.0.0" # Use your project's Kotlin version
+
+[plugins]
+# ... other plugins
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
