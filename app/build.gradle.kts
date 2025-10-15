@@ -54,7 +54,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
+// Or the latest version
     // Corrected JUnit dependencies
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -65,6 +66,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // Room
     implementation(libs.androidx.room.runtime)
@@ -83,4 +85,18 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion") // Use 'ksp' for the compiler
+    // ... other dependencies
+
+    // ViewModel Compose Integration
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2") // Use the latest version
+
+    // Lifecycle Runtime Compose Integration (needed for collectAsStateWithLifecycle)
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2") // Use the latest version
+
+    // Navigation Compose
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+
+    // Other Compose and Activity dependencies (you should already have these)
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
 }

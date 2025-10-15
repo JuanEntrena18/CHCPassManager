@@ -1,10 +1,12 @@
-package com.chc.CHCPassManager // Asegúrate de que coincida con tu package name
+package com.chc.CHCPassManager
 
 import android.content.Context
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,17 +15,36 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import androidx.room.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -32,21 +53,15 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 // =================================================================================
-// --- CAPA DE SEGURIDAD (Implementación de la sección 4 y 6.1) ---
+// --- CAPA DE SEGURIDAD ---
 // =================================================================================
-
-data class CiphertextWrapper(
-    val ciphertext: ByteArray,
-    val initializationVector: ByteArray,
-    val authenticationTag: ByteArray
-)
+data class CiphertextWrapper(val ciphertext: ByteArray, val initializationVector: ByteArray, val authenticationTag: ByteArray)
 
 class EncryptionManager {
     private val ALGORITHM = "AES"
     private val BLOCK_MODE = "GCM"
     private val PADDING = "NoPadding"
     private val TRANSFORMATION = "$ALGORITHM/$BLOCK_MODE/$PADDING"
-
     private val PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA256"
     private val PBKDF2_ITERATIONS = 100000
     private val KEY_SIZE_BITS = 256
@@ -57,49 +72,35 @@ class EncryptionManager {
     fun encrypt(plaintext: ByteArray, masterPassword: CharArray, salt: ByteArray): CiphertextWrapper {
         val secretKey = deriveKey(masterPassword, salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-
-        val iv = ByteArray(IV_SIZE_BYTES)
-        SecureRandom().nextBytes(iv)
+        val iv = ByteArray(IV_SIZE_BYTES).apply { SecureRandom().nextBytes(this) }
         val gcmParameterSpec = GCMParameterSpec(TAG_SIZE_BITS, iv)
-
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmParameterSpec)
         val ciphertext = cipher.doFinal(plaintext)
-
-        val authenticationTag = ciphertext.copyOfRange(ciphertext.size - (TAG_SIZE_BITS / 8), ciphertext.size)
-        val actualCiphertext = ciphertext.copyOfRange(0, ciphertext.size - (TAG_SIZE_BITS / 8))
-
+        val tagSize = TAG_SIZE_BITS / 8
+        val authenticationTag = ciphertext.copyOfRange(ciphertext.size - tagSize, ciphertext.size)
+        val actualCiphertext = ciphertext.copyOfRange(0, ciphertext.size - tagSize)
         return CiphertextWrapper(actualCiphertext, iv, authenticationTag)
     }
 
     fun decrypt(wrapper: CiphertextWrapper, masterPassword: CharArray, salt: ByteArray): ByteArray {
         val secretKey = deriveKey(masterPassword, salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-
         val gcmParameterSpec = GCMParameterSpec(TAG_SIZE_BITS, wrapper.initializationVector)
         cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmParameterSpec)
-
         val ciphertextWithTag = wrapper.ciphertext + wrapper.authenticationTag
-
         return cipher.doFinal(ciphertextWithTag)
     }
 
-    fun generateSalt(): ByteArray {
-        val salt = ByteArray(SALT_SIZE_BYTES)
-        SecureRandom().nextBytes(salt)
-        return salt
-    }
-
     private fun deriveKey(masterPassword: CharArray, salt: ByteArray): SecretKeySpec {
-        val spec = PBEKeySpec(masterPassword, salt, PBKDF2_ITERATIONS, KEY_SIZE_BITS)
         val factory = SecretKeyFactory.getInstance(PBKDF2_ALGORITHM)
+        val spec = PBEKeySpec(masterPassword, salt, PBKDF2_ITERATIONS, KEY_SIZE_BITS)
         val keyBytes = factory.generateSecret(spec).encoded
         return SecretKeySpec(keyBytes, ALGORITHM)
     }
 }
 
-
 // =================================================================================
-// --- CAPA DE DATOS (Implementación de la sección 3 y 6.4) ---
+// --- CAPA DE DATOS (MODELOS Y ROOM) ---
 // =================================================================================
 
 @Entity(tableName = "passwords")
@@ -107,42 +108,12 @@ data class PasswordEntry(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val title: String,
     val username: String,
-    val url: String, // **CORREGIDO: Campo URL añadido**
+    val url: String,
     val encryptedData: ByteArray,
     val iv: ByteArray,
     val tag: ByteArray,
     val notes: String
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as PasswordEntry
-
-        if (id != other.id) return false
-        if (title != other.title) return false
-        if (username != other.username) return false
-        if (url != other.url) return false
-        if (!encryptedData.contentEquals(other.encryptedData)) return false
-        if (!iv.contentEquals(other.iv)) return false
-        if (!tag.contentEquals(other.tag)) return false
-        if (notes != other.notes) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = id
-        result = 31 * result + title.hashCode()
-        result = 31 * result + username.hashCode()
-        result = 31 * result + url.hashCode()
-        result = 31 * result + encryptedData.contentHashCode()
-        result = 31 * result + iv.contentHashCode()
-        result = 31 * result + tag.contentHashCode()
-        result = 31 * result + notes.hashCode()
-        return result
-    }
-}
+)
 
 data class DecryptedPasswordEntry(
     val id: Int,
@@ -161,7 +132,7 @@ interface PasswordEntryDao {
     @Update
     suspend fun update(entry: PasswordEntry)
 
-    @androidx.room.Delete
+    @Delete
     suspend fun delete(entry: PasswordEntry)
 
     @Query("SELECT * FROM passwords ORDER BY title ASC")
@@ -181,47 +152,35 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "password_manager_database"
-                )
-                    // ESTA LÍNEA SOLUCIONA EL CIERRE INESPERADO.
-                    // Permite a Room realizar la consulta inicial en el hilo principal.
-                    .allowMainThreadQueries()
+                Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "password_manager_database")
+                    .fallbackToDestructiveMigration()
                     .build()
-                INSTANCE = instance
-                instance
+                    .also { INSTANCE = it }
             }
         }
     }
 }
 
-
 // =================================================================================
-// --- CAPA DE REPOSITORIO (Implementación de la sección 3 y 6.4) ---
+// --- CAPA DE REPOSITORIO ---
 // =================================================================================
 
 class PasswordRepository(
     private val passwordEntryDao: PasswordEntryDao,
     private val encryptionManager: EncryptionManager,
-    private val masterPasswordProvider: () -> CharArray,
-    private val saltProvider: () -> ByteArray
+    private val masterPassword: CharArray,
+    private val salt: ByteArray
 ) {
     fun getAllDecryptedEntries(): Flow<List<DecryptedPasswordEntry>> {
-        // **CORREGIDO: Sintaxis del 'map' arreglada**
-        return passwordEntryDao.getAllEntries().map { encryptedList ->
-            encryptedList.mapNotNull { decryptEntry(it) }
-        }
+        return passwordEntryDao.getAllEntries()
+            .map { encryptedList ->
+                encryptedList.mapNotNull { decryptEntry(it) }
+            }
+            .flowOn(Dispatchers.IO)
     }
 
     suspend fun addPassword(entry: DecryptedPasswordEntry) {
-        val encryptedPassword = encryptionManager.encrypt(
-            entry.passwordPlainText.toByteArray(),
-            masterPasswordProvider(),
-            saltProvider()
-        )
-        // **CORREGIDO: Nombres de campos y 'url' coinciden con la entidad PasswordEntry**
+        val encryptedPassword = encryptionManager.encrypt(entry.passwordPlainText.toByteArray(), masterPassword, salt)
         val newEntry = PasswordEntry(
             title = entry.title,
             username = entry.username,
@@ -235,28 +194,13 @@ class PasswordRepository(
     }
 
     suspend fun deletePassword(entry: DecryptedPasswordEntry) {
-        val encryptedEntry = passwordEntryDao.getEntryById(entry.id)
-        encryptedEntry?.let {
-            passwordEntryDao.delete(it)
-        }
+        passwordEntryDao.getEntryById(entry.id)?.let { passwordEntryDao.delete(it) }
     }
 
     private fun decryptEntry(entry: PasswordEntry): DecryptedPasswordEntry? {
         return try {
-            // **CORREGIDO: Nombres de campos coinciden con la entidad PasswordEntry**
-            val decryptedPasswordBytes = encryptionManager.decrypt(
-                CiphertextWrapper(entry.encryptedData, entry.iv, entry.tag),
-                masterPasswordProvider(),
-                saltProvider()
-            )
-            DecryptedPasswordEntry(
-                id = entry.id,
-                title = entry.title,
-                username = entry.username,
-                passwordPlainText = String(decryptedPasswordBytes),
-                url = entry.url,
-                notes = entry.notes
-            )
+            val decryptedPasswordBytes = encryptionManager.decrypt(CiphertextWrapper(entry.encryptedData, entry.iv, entry.tag), masterPassword, salt)
+            DecryptedPasswordEntry(entry.id, entry.title, entry.username, String(decryptedPasswordBytes), entry.url, entry.notes)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -264,29 +208,20 @@ class PasswordRepository(
     }
 }
 
-
 // =================================================================================
-// --- CAPA DE VIEWMODEL (Implementación de la sección 3 y 6.5) ---
+// --- CAPA DE VIEWMODEL ---
 // =================================================================================
 
 class MainViewModel(private val repository: PasswordRepository) : ViewModel() {
+    val allPasswords: Flow<List<DecryptedPasswordEntry>> = repository.getAllDecryptedEntries()
 
-    val allPasswords: LiveData<List<DecryptedPasswordEntry>> = repository.getAllDecryptedEntries().asLiveData()
-
-    fun addPassword(entry: DecryptedPasswordEntry) {
-        viewModelScope.launch {
-            repository.addPassword(entry)
-        }
-    }
-
-    fun deletePassword(entry: DecryptedPasswordEntry) {
-        viewModelScope.launch {
-            repository.deletePassword(entry)
-        }
-    }
+    fun addPassword(entry: DecryptedPasswordEntry) = viewModelScope.launch { repository.addPassword(entry) }
+    fun deletePassword(entry: DecryptedPasswordEntry) = viewModelScope.launch { repository.deletePassword(entry) }
 }
 
-class MainViewModelFactory(private val repository: PasswordRepository) : ViewModelProvider.Factory {
+class MainViewModelFactory(
+    private val repository: PasswordRepository // Ahora solo recibe el repositorio ya creado
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
@@ -296,70 +231,155 @@ class MainViewModelFactory(private val repository: PasswordRepository) : ViewMod
     }
 }
 
-
 // =================================================================================
-// --- CAPA DE PRESENTACIÓN (UI) con Jetpack Compose (Implementación de la sección 6.5) ---
+// --- CAPA DE PRESENTACIÓN (UI) ---
 // =================================================================================
 
-class MainActivity : AppCompatActivity() {
-
-    private val masterPassword = "SuperPassword123!".toCharArray()
-    private val salt by lazy { EncryptionManager().generateSalt() }
-
-    private val database by lazy { AppDatabase.getDatabase(this) }
-    private val repository by lazy {
-        PasswordRepository(database.passwordEntryDao(), EncryptionManager(), { masterPassword }, { salt })
-    }
-
-    private val mainViewModel: MainViewModel by viewModels {
-        MainViewModelFactory(repository)
-    }
-
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // --- SOLUCIÓN DEFINITIVA ---
+        // 1. Definimos las dependencias clave.
+        val masterPassword = "SuperPassword123!".toCharArray()
+        val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
+
+        // 2. Creamos la Factory UNA SOLA VEZ, aquí, en un punto seguro del ciclo de vida.
+        // La factory es ligera. Las dependencias pesadas (DB, Repo) se crearán
+        // de forma perezosa y segura dentro de ella cuando el ViewModel la necesite.
+        val viewModelFactory = MainViewModelFactory(applicationContext, masterPassword, salt)
+
         setContent {
             MaterialTheme {
-                PasswordManagerApp(mainViewModel)
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "welcome") {
+                    composable("welcome") {
+                        WelcomeScreen(
+                            onContinue = {
+                                navController.navigate("main") {
+                                    popUpTo("welcome") { inclusive = true }
+                                }
+                            }
+                        )
+                    }
+                    composable("main") {
+                        // La llamada ahora es mucho más simple.
+                        PasswordManagerScreen()
+                    }
+                }
             }
+        }
+    }
+}
+
+
+// --- SCREENS Y COMPONENTES DE UI ---
+
+@Composable
+fun WelcomeScreen(onContinue: () -> Unit) {
+    val animatedProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        animatedProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 1500, delayMillis = 300)
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("CHC PassManager", style = MaterialTheme.typography.headlineLarge)
+        Spacer(modifier = Modifier.height(32.dp))
+        AppLogo(modifier = Modifier.size(150.dp), progress = animatedProgress.value)
+        Spacer(modifier = Modifier.height(50.dp))
+        Text(
+            "Bienvenido a tu gestor de contraseñas seguro.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Button(onClick = onContinue) {
+            Text("Crear Baúl de Contraseñas")
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PasswordManagerApp(viewModel: MainViewModel) {
-    val passwords by viewModel.allPasswords.observeAsState(initial = emptyList())
-    var showDialog by remember { mutableStateOf(false) }
+fun PasswordManagerScreen() { // Ya no necesita la factory como parámetro
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Cyber Haute Couture") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+    // ---- INICIALIZACIÓN ASÍNCRONA Y SEGURA ----
+    var viewModel by remember { mutableStateOf<MainViewModel?>(null) }
+    val context = LocalContext.current.applicationContext
+
+    // LaunchedEffect se ejecuta una sola vez y en una corrutina,
+    // es el lugar perfecto para inicializar dependencias pesadas.
+    LaunchedEffect(key1 = true) {
+        // Todas estas operaciones se realizan en un hilo de fondo
+        withContext(Dispatchers.IO) {
+            val masterPassword = "SuperPassword123!".toCharArray()
+            val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
+            val database = AppDatabase.getDatabase(context)
+            val repository = PasswordRepository(
+                passwordEntryDao = database.passwordEntryDao(),
+                encryptionManager = EncryptionManager(),
+                masterPassword = masterPassword,
+                salt = salt
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showDialog = true }) {
-                Icon(Icons.Filled.Add, contentDescription = "Añadir contraseña")
+            val factory = MainViewModelFactory(repository)
+            // Una vez todo está listo, creamos el ViewModel
+            // y lo asignamos al estado en el hilo principal.
+            withContext(Dispatchers.Main) {
+                viewModel = factory.create(MainViewModel::class.java)
             }
         }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            if (passwords.isEmpty()) {
-                EmptyState()
-            } else {
-                PasswordList(passwords = passwords, onDelete = { viewModel.deletePassword(it) })
-            }
+    }
 
-            if (showDialog) {
+    // ---- GESTIÓN DE LA UI BASADA EN EL ESTADO ----
+    if (viewModel == null) {
+        // Estado 1: El ViewModel todavía no está listo. Mostramos una pantalla de carga.
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+            Text("Creando baúl...", modifier = Modifier.padding(top = 60.dp))
+        }
+    } else {
+        // Estado 2: El ViewModel está listo. Mostramos la aplicación principal.
+        val passwords by viewModel!!.allPasswords.collectAsStateWithLifecycle(initialValue = emptyList())
+        var showAddDialog by rememberSaveable { mutableStateOf(false) }
+
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Mis Contraseñas") },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Filled.Add, contentDescription = "Añadir Contraseña")
+                }
+            }
+        ) { paddingValues ->
+            PasswordManagerContent(
+                modifier = Modifier.padding(paddingValues),
+                passwords = passwords,
+                onDeletePassword = viewModel!!::deletePassword
+            )
+
+            if (showAddDialog) {
                 AddPasswordDialog(
-                    onDismiss = { showDialog = false },
-                    onConfirm = { entry ->
-                        viewModel.addPassword(entry)
-                        showDialog = false
+                    onDismiss = { showAddDialog = false },
+                    onConfirm = { newEntry ->
+                        viewModel!!.addPassword(newEntry)
+                        showAddDialog = false
                     }
                 )
             }
@@ -368,14 +388,28 @@ fun PasswordManagerApp(viewModel: MainViewModel) {
 }
 
 @Composable
-fun PasswordList(passwords: List<DecryptedPasswordEntry>, onDelete: (DecryptedPasswordEntry) -> Unit) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(passwords, key = { it.id }) { entry ->
-            PasswordListItem(entry = entry, onDelete = { onDelete(entry) })
+private fun PasswordManagerContent(
+    modifier: Modifier = Modifier,
+    passwords: List<DecryptedPasswordEntry>,
+    onDeletePassword: (DecryptedPasswordEntry) -> Unit
+) {
+    if (passwords.isEmpty()) {
+        EmptyState(modifier = modifier.fillMaxSize())
+    } else {
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = passwords,
+                key = { password -> password.id }
+            ) { password ->
+                PasswordListItem(
+                    entry = password,
+                    onDelete = { onDeletePassword(password) }
+                )
+            }
         }
     }
 }
@@ -398,7 +432,7 @@ fun PasswordListItem(entry: DecryptedPasswordEntry, onDelete: () -> Unit) {
             ) {
                 Text(entry.title, style = MaterialTheme.typography.titleLarge)
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar")
+                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar", tint = Color.Gray)
                 }
             }
             Text(entry.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -406,8 +440,8 @@ fun PasswordListItem(entry: DecryptedPasswordEntry, onDelete: () -> Unit) {
             if (expanded) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Contraseña: ${entry.passwordPlainText}", fontWeight = FontWeight.SemiBold)
-                Text("URL: ${entry.url}", style = MaterialTheme.typography.bodySmall)
-                Text("Notas: ${entry.notes}", style = MaterialTheme.typography.bodySmall)
+                if (entry.url.isNotBlank()) Text("URL: ${entry.url}", style = MaterialTheme.typography.bodySmall)
+                if (entry.notes.isNotBlank()) Text("Notas: ${entry.notes}", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -435,27 +469,18 @@ fun AddPasswordDialog(onDismiss: () -> Unit, onConfirm: (DecryptedPasswordEntry)
         },
         confirmButton = {
             Button(
-                onClick = {
-                    val newEntry = DecryptedPasswordEntry(0, title, username, password, url, notes)
-                    onConfirm(newEntry)
-                },
+                onClick = { onConfirm(DecryptedPasswordEntry(0, title, username, password, url, notes)) },
                 enabled = title.isNotBlank() && username.isNotBlank() && password.isNotBlank()
-            ) {
-                Text("Guardar")
-            }
+            ) { Text("Guardar") }
         },
-        dismissButton = {
-            Button(onClick = onDismiss) {
-                Text("Cancelar")
-            }
-        }
+        dismissButton = { Button(onClick = onDismiss) { Text("Cancelar") } }
     )
 }
 
 @Composable
-fun EmptyState() {
+fun EmptyState(modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -466,3 +491,37 @@ fun EmptyState() {
     }
 }
 
+@Composable
+fun AppLogo(modifier: Modifier = Modifier, progress: Float) {
+    val shieldGradient = Brush.linearGradient(
+        colors = listOf(Color(0xFF1e3a8a), Color(0xFF3b82f6))
+    )
+
+    Canvas(modifier = modifier) {
+        val path = Path().apply {
+            moveTo(size.width * 0.50f, size.height * 0.05f)
+            cubicTo(size.width * 0.25f, size.height * 0.15f, size.width * 0.20f, size.height * 0.40f, size.width * 0.50f, size.height * 0.95f)
+            cubicTo(size.width * 0.80f, size.height * 0.40f, size.width * 0.75f, size.height * 0.15f, size.width * 0.50f, size.height * 0.05f)
+            close()
+        }
+        drawPath(path = path, brush = shieldGradient)
+
+        if (progress > 0.5f) { // Animación empieza a mitad
+            val keyPath = Path().apply {
+                moveTo(size.width * 0.40f, size.height * 0.70f)
+                lineTo(size.width * 0.60f, size.height * 0.50f)
+                lineTo(size.width * 0.45f, size.height * 0.35f)
+            }
+            drawPath(
+                path = keyPath,
+                color = Color.White.copy(alpha = (progress - 0.5f) * 2), // Fade-in
+                style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = (progress - 0.5f) * 2),
+                radius = 3.dp.toPx(),
+                center = Offset(size.width * 0.40f, size.height * 0.70f)
+            )
+        }
+    }
+}
