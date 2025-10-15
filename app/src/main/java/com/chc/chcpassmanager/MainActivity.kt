@@ -1,4 +1,4 @@
-package com.chc.CHCPassManager
+package com.chc.chcpassmanager
 
 import android.content.Context
 import android.os.Bundle
@@ -15,9 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -31,10 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -145,24 +141,19 @@ interface PasswordEntryDao {
 @Database(entities = [PasswordEntry::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun passwordEntryDao(): PasswordEntryDao
-
     companion object {
-        @Volatile
-        private var INSTANCE: AppDatabase? = null
-
+        @Volatile private var INSTANCE: AppDatabase? = null
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "password_manager_database")
-                    .fallbackToDestructiveMigration()
-                    .build()
-                    .also { INSTANCE = it }
+                    .fallbackToDestructiveMigration().build().also { INSTANCE = it }
             }
         }
     }
 }
 
 // =================================================================================
-// --- CAPA DE REPOSITORIO ---
+// --- CAPA DE REPOSITORIO (IMPLEMENTACIÓN COMPLETA) ---
 // =================================================================================
 
 class PasswordRepository(
@@ -194,7 +185,9 @@ class PasswordRepository(
     }
 
     suspend fun deletePassword(entry: DecryptedPasswordEntry) {
-        passwordEntryDao.getEntryById(entry.id)?.let { passwordEntryDao.delete(it) }
+        passwordEntryDao.getEntryById(entry.id)?.let {
+            passwordEntryDao.delete(it)
+        }
     }
 
     private fun decryptEntry(entry: PasswordEntry): DecryptedPasswordEntry? {
@@ -214,18 +207,14 @@ class PasswordRepository(
 
 class MainViewModel(private val repository: PasswordRepository) : ViewModel() {
     val allPasswords: Flow<List<DecryptedPasswordEntry>> = repository.getAllDecryptedEntries()
-
     fun addPassword(entry: DecryptedPasswordEntry) = viewModelScope.launch { repository.addPassword(entry) }
     fun deletePassword(entry: DecryptedPasswordEntry) = viewModelScope.launch { repository.deletePassword(entry) }
 }
 
-class MainViewModelFactory(
-    private val repository: PasswordRepository // Ahora solo recibe el repositorio ya creado
-) : ViewModelProvider.Factory {
+class MainViewModelFactory(private val repository: PasswordRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return MainViewModel(repository) as T
+            @Suppress("UNCHECKED_CAST") return MainViewModel(repository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -238,17 +227,6 @@ class MainViewModelFactory(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // --- SOLUCIÓN DEFINITIVA ---
-        // 1. Definimos las dependencias clave.
-        val masterPassword = "SuperPassword123!".toCharArray()
-        val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
-
-        // 2. Creamos la Factory UNA SOLA VEZ, aquí, en un punto seguro del ciclo de vida.
-        // La factory es ligera. Las dependencias pesadas (DB, Repo) se crearán
-        // de forma perezosa y segura dentro de ella cuando el ViewModel la necesite.
-        val viewModelFactory = MainViewModelFactory(applicationContext, masterPassword, salt)
-
         setContent {
             MaterialTheme {
                 val navController = rememberNavController()
@@ -256,14 +234,11 @@ class MainActivity : ComponentActivity() {
                     composable("welcome") {
                         WelcomeScreen(
                             onContinue = {
-                                navController.navigate("main") {
-                                    popUpTo("welcome") { inclusive = true }
-                                }
+                                navController.navigate("main") { popUpTo("welcome") { inclusive = true } }
                             }
                         )
                     }
                     composable("main") {
-                        // La llamada ahora es mucho más simple.
                         PasswordManagerScreen()
                     }
                 }
@@ -272,30 +247,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
-// --- SCREENS Y COMPONENTES DE UI ---
-
 @Composable
 fun WelcomeScreen(onContinue: () -> Unit) {
-    val animatedProgress = remember { Animatable(0f) }
-
-    LaunchedEffect(Unit) {
-        animatedProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 1500, delayMillis = 300)
-        )
-    }
-
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Text("CHC PassManager", style = MaterialTheme.typography.headlineLarge)
         Spacer(modifier = Modifier.height(32.dp))
-        AppLogo(modifier = Modifier.size(150.dp), progress = animatedProgress.value)
+        AppLogo(modifier = Modifier.size(150.dp))
         Spacer(modifier = Modifier.height(50.dp))
         Text(
             "Bienvenido a tu gestor de contraseñas seguro.",
@@ -311,16 +272,11 @@ fun WelcomeScreen(onContinue: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PasswordManagerScreen() { // Ya no necesita la factory como parámetro
-
-    // ---- INICIALIZACIÓN ASÍNCRONA Y SEGURA ----
+fun PasswordManagerScreen() {
     var viewModel by remember { mutableStateOf<MainViewModel?>(null) }
     val context = LocalContext.current.applicationContext
 
-    // LaunchedEffect se ejecuta una sola vez y en una corrutina,
-    // es el lugar perfecto para inicializar dependencias pesadas.
-    LaunchedEffect(key1 = true) {
-        // Todas estas operaciones se realizan en un hilo de fondo
+    LaunchedEffect(key1 = Unit) {
         withContext(Dispatchers.IO) {
             val masterPassword = "SuperPassword123!".toCharArray()
             val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
@@ -332,55 +288,30 @@ fun PasswordManagerScreen() { // Ya no necesita la factory como parámetro
                 salt = salt
             )
             val factory = MainViewModelFactory(repository)
-            // Una vez todo está listo, creamos el ViewModel
-            // y lo asignamos al estado en el hilo principal.
             withContext(Dispatchers.Main) {
                 viewModel = factory.create(MainViewModel::class.java)
             }
         }
     }
 
-    // ---- GESTIÓN DE LA UI BASADA EN EL ESTADO ----
     if (viewModel == null) {
-        // Estado 1: El ViewModel todavía no está listo. Mostramos una pantalla de carga.
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
-            Text("Creando baúl...", modifier = Modifier.padding(top = 60.dp))
+            Text("Creando baúl seguro...", modifier = Modifier.padding(top = 80.dp), style = MaterialTheme.typography.bodyLarge)
         }
     } else {
-        // Estado 2: El ViewModel está listo. Mostramos la aplicación principal.
         val passwords by viewModel!!.allPasswords.collectAsStateWithLifecycle(initialValue = emptyList())
         var showAddDialog by rememberSaveable { mutableStateOf(false) }
 
         Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Mis Contraseñas") },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            },
-            floatingActionButton = {
-                FloatingActionButton(onClick = { showAddDialog = true }) {
-                    Icon(Icons.Filled.Add, contentDescription = "Añadir Contraseña")
-                }
-            }
+            topBar = { TopAppBar(title = { Text("Mis Contraseñas") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) },
+            floatingActionButton = { FloatingActionButton(onClick = { showAddDialog = true }) { Icon(Icons.Filled.Add, contentDescription = "Añadir Contraseña") } }
         ) { paddingValues ->
-            PasswordManagerContent(
-                modifier = Modifier.padding(paddingValues),
-                passwords = passwords,
-                onDeletePassword = viewModel!!::deletePassword
-            )
-
+            PasswordManagerContent(modifier = Modifier.padding(paddingValues), passwords = passwords, onDeletePassword = viewModel!!::deletePassword)
             if (showAddDialog) {
                 AddPasswordDialog(
                     onDismiss = { showAddDialog = false },
-                    onConfirm = { newEntry ->
-                        viewModel!!.addPassword(newEntry)
-                        showAddDialog = false
-                    }
+                    onConfirm = { newEntry -> viewModel!!.addPassword(newEntry); showAddDialog = false }
                 )
             }
         }
@@ -388,11 +319,7 @@ fun PasswordManagerScreen() { // Ya no necesita la factory como parámetro
 }
 
 @Composable
-private fun PasswordManagerContent(
-    modifier: Modifier = Modifier,
-    passwords: List<DecryptedPasswordEntry>,
-    onDeletePassword: (DecryptedPasswordEntry) -> Unit
-) {
+private fun PasswordManagerContent(modifier: Modifier = Modifier, passwords: List<DecryptedPasswordEntry>, onDeletePassword: (DecryptedPasswordEntry) -> Unit) {
     if (passwords.isEmpty()) {
         EmptyState(modifier = modifier.fillMaxSize())
     } else {
@@ -401,14 +328,8 @@ private fun PasswordManagerContent(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(
-                items = passwords,
-                key = { password -> password.id }
-            ) { password ->
-                PasswordListItem(
-                    entry = password,
-                    onDelete = { onDeletePassword(password) }
-                )
+            items(items = passwords, key = { it.id }) { password ->
+                PasswordListItem(entry = password, onDelete = { onDeletePassword(password) })
             }
         }
     }
@@ -418,7 +339,6 @@ private fun PasswordManagerContent(
 @Composable
 fun PasswordListItem(entry: DecryptedPasswordEntry, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -436,7 +356,6 @@ fun PasswordListItem(entry: DecryptedPasswordEntry, onDelete: () -> Unit) {
                 }
             }
             Text(entry.username, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
             if (expanded) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Contraseña: ${entry.passwordPlainText}", fontWeight = FontWeight.SemiBold)
@@ -447,6 +366,7 @@ fun PasswordListItem(entry: DecryptedPasswordEntry, onDelete: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddPasswordDialog(onDismiss: () -> Unit, onConfirm: (DecryptedPasswordEntry) -> Unit) {
     var title by remember { mutableStateOf("") }
@@ -492,21 +412,27 @@ fun EmptyState(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AppLogo(modifier: Modifier = Modifier, progress: Float) {
-    val shieldGradient = Brush.linearGradient(
-        colors = listOf(Color(0xFF1e3a8a), Color(0xFF3b82f6))
-    )
+fun AppLogo(modifier: Modifier = Modifier) {
+    val animatedProgress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        animatedProgress.animateTo(targetValue = 1f, animationSpec = tween(durationMillis = 1500))
+    }
 
     Canvas(modifier = modifier) {
-        val path = Path().apply {
+        val shieldGradient = Brush.linearGradient(colors = listOf(Color(0xFF1e3a8a), Color(0xFF3b82f6)))
+
+        // 1. Dibuja el escudo
+        val shieldPath = Path().apply {
             moveTo(size.width * 0.50f, size.height * 0.05f)
             cubicTo(size.width * 0.25f, size.height * 0.15f, size.width * 0.20f, size.height * 0.40f, size.width * 0.50f, size.height * 0.95f)
             cubicTo(size.width * 0.80f, size.height * 0.40f, size.width * 0.75f, size.height * 0.15f, size.width * 0.50f, size.height * 0.05f)
             close()
         }
-        drawPath(path = path, brush = shieldGradient)
+        drawPath(path = shieldPath, brush = shieldGradient)
 
-        if (progress > 0.5f) { // Animación empieza a mitad
+        // 2. Dibuja el icono de la llave dentro del escudo (con animación)
+        val keyProgress = (animatedProgress.value - 0.3f).coerceIn(0f, 1f) / 0.7f
+        if (keyProgress > 0) {
             val keyPath = Path().apply {
                 moveTo(size.width * 0.40f, size.height * 0.70f)
                 lineTo(size.width * 0.60f, size.height * 0.50f)
@@ -514,11 +440,11 @@ fun AppLogo(modifier: Modifier = Modifier, progress: Float) {
             }
             drawPath(
                 path = keyPath,
-                color = Color.White.copy(alpha = (progress - 0.5f) * 2), // Fade-in
+                color = Color.White.copy(alpha = keyProgress),
                 style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
             drawCircle(
-                color = Color.White.copy(alpha = (progress - 0.5f) * 2),
+                color = Color.White.copy(alpha = keyProgress),
                 radius = 3.dp.toPx(),
                 center = Offset(size.width * 0.40f, size.height * 0.70f)
             )
