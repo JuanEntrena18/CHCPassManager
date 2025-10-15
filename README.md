@@ -83,7 +83,7 @@
 ​
  - [ ] Implementar una pantalla de inicio de sesión segura para la contraseña maestra.
  - [ ] Almacenar la "sal" criptográfica de forma segura utilizando Android Keystore.
- - [ ] Añadir un generador de contraseñas seguras.
+ - [X] Añadir un generador de contraseñas seguras.
  - [ ] Implementar autenticación biométrica (huella dactilar/desbloqueo facial).
  - [ ] Añadir funcionalidad de búsqueda y filtrado.
  - [ ] Implementar la funcionalidad de copia de seguridad y restauración (cifrada) de la base de datos.
