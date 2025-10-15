@@ -2,17 +2,23 @@ package com.chc.chcpassmanager
 
 import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,12 +31,17 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -41,12 +52,17 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.math.log2
+import kotlin.math.pow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 // =================================================================================
 // --- CAPA DE SEGURIDAD ---
@@ -153,7 +169,7 @@ abstract class AppDatabase : RoomDatabase() {
 }
 
 // =================================================================================
-// --- CAPA DE REPOSITORIO (IMPLEMENTACIÓN COMPLETA) ---
+// --- CAPA DE REPOSITORIO ---
 // =================================================================================
 
 class PasswordRepository(
@@ -233,13 +249,21 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "welcome") {
                     composable("welcome") {
                         WelcomeScreen(
-                            onContinue = {
+                            onCreateVault = {
                                 navController.navigate("main") { popUpTo("welcome") { inclusive = true } }
+                            },
+                            onGoToGenerator = {
+                                navController.navigate("generator")
                             }
                         )
                     }
                     composable("main") {
                         PasswordManagerScreen()
+                    }
+                    composable("generator") {
+                        GeneratorScreen(
+                            onNavigateUp = { navController.navigateUp() }
+                        )
                     }
                 }
             }
@@ -248,9 +272,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WelcomeScreen(onContinue: () -> Unit) {
+fun WelcomeScreen(onCreateVault: () -> Unit, onGoToGenerator: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()), // <-- AÑADIDO: Permite el scroll
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -264,8 +291,12 @@ fun WelcomeScreen(onContinue: () -> Unit) {
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = onContinue) {
+        Button(onClick = onCreateVault) {
             Text("Crear Baúl de Contraseñas")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedButton(onClick = onGoToGenerator) {
+            Text("Probar Generador de Contraseñas")
         }
     }
 }
@@ -273,50 +304,84 @@ fun WelcomeScreen(onContinue: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PasswordManagerScreen() {
-    var viewModel by remember { mutableStateOf<MainViewModel?>(null) }
+    // 1. Creamos un estado para el repositorio, que se inicializará en segundo plano.
+    var repository by remember { mutableStateOf<PasswordRepository?>(null) }
     val context = LocalContext.current.applicationContext
 
+    // 2. LaunchedEffect crea el repositorio de forma segura sin bloquear la UI.
     LaunchedEffect(key1 = Unit) {
         withContext(Dispatchers.IO) {
             val masterPassword = "SuperPassword123!".toCharArray()
             val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
             val database = AppDatabase.getDatabase(context)
-            val repository = PasswordRepository(
+            repository = PasswordRepository(
                 passwordEntryDao = database.passwordEntryDao(),
                 encryptionManager = EncryptionManager(),
                 masterPassword = masterPassword,
                 salt = salt
             )
-            val factory = MainViewModelFactory(repository)
-            withContext(Dispatchers.Main) {
-                viewModel = factory.create(MainViewModel::class.java)
-            }
         }
     }
 
-    if (viewModel == null) {
+    // 3. Mientras el repositorio se está creando, mostramos una pantalla de carga.
+    if (repository == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
             Text("Creando baúl seguro...", modifier = Modifier.padding(top = 80.dp), style = MaterialTheme.typography.bodyLarge)
         }
     } else {
-        val passwords by viewModel!!.allPasswords.collectAsStateWithLifecycle(initialValue = emptyList())
+        // 4. Una vez listo el repositorio, creamos el ViewModel de la forma correcta y segura.
+        val factory = MainViewModelFactory(repository!!)
+        val viewModel: MainViewModel = viewModel(factory = factory)
+
+        val passwords by viewModel.allPasswords.collectAsStateWithLifecycle(initialValue = emptyList())
         var showAddDialog by rememberSaveable { mutableStateOf(false) }
 
         Scaffold(
             topBar = { TopAppBar(title = { Text("Mis Contraseñas") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) },
             floatingActionButton = { FloatingActionButton(onClick = { showAddDialog = true }) { Icon(Icons.Filled.Add, contentDescription = "Añadir Contraseña") } }
         ) { paddingValues ->
-            PasswordManagerContent(modifier = Modifier.padding(paddingValues), passwords = passwords, onDeletePassword = viewModel!!::deletePassword)
+            PasswordManagerContent(modifier = Modifier.padding(paddingValues), passwords = passwords, onDeletePassword = viewModel::deletePassword)
             if (showAddDialog) {
                 AddPasswordDialog(
                     onDismiss = { showAddDialog = false },
-                    onConfirm = { newEntry -> viewModel!!.addPassword(newEntry); showAddDialog = false }
+                    onConfirm = { newEntry -> viewModel.addPassword(newEntry); showAddDialog = false }
                 )
             }
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GeneratorScreen(onNavigateUp: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Generador") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateUp) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(paddingValues),
+            contentAlignment = Alignment.Center
+        ) {
+            // Se muestra el diálogo directamente en esta pantalla de ejemplo
+            GeneratePasswordDialog(
+                onDismiss = onNavigateUp,
+                onConfirm = { /* En esta pantalla, no se hace nada al confirmar, solo se cierra */
+                    onNavigateUp()
+                }
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun PasswordManagerContent(modifier: Modifier = Modifier, passwords: List<DecryptedPasswordEntry>, onDeletePassword: (DecryptedPasswordEntry) -> Unit) {
@@ -374,6 +439,17 @@ fun AddPasswordDialog(onDismiss: () -> Unit, onConfirm: (DecryptedPasswordEntry)
     var password by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var showGenerateDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showGenerateDialog) {
+        GeneratePasswordDialog(
+            onDismiss = { showGenerateDialog = false },
+            onConfirm = { generatedPassword ->
+                password = generatedPassword
+                showGenerateDialog = false
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -382,7 +458,17 @@ fun AddPasswordDialog(onDismiss: () -> Unit, onConfirm: (DecryptedPasswordEntry)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Nombre de usuario") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Contraseña") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Contraseña") },
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(onClick = { showGenerateDialog = true }) {
+                            Icon(Icons.Default.VpnKey, contentDescription = "Generar Contraseña")
+                        }
+                    }
+                )
                 OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notas") }, modifier = Modifier.fillMaxWidth())
             }
@@ -394,6 +480,179 @@ fun AddPasswordDialog(onDismiss: () -> Unit, onConfirm: (DecryptedPasswordEntry)
             ) { Text("Guardar") }
         },
         dismissButton = { Button(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+private fun generateSecurePassword(length: Int, useUppercase: Boolean, useNumbers: Boolean, useSymbols: Boolean): String {
+    val lowercaseChars = "abcdefghijklmnopqrstuvwxyz"
+    val uppercaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    val numberChars = "0123456789"
+    val symbolChars = "!@#$%^&*()_+-=[]{}|;':,./<>?"
+
+    val charPool = StringBuilder(lowercaseChars)
+    val requiredChars = mutableListOf<Char>()
+
+    if (useUppercase) {
+        charPool.append(uppercaseChars)
+        requiredChars.add(uppercaseChars.random())
+    }
+    if (useNumbers) {
+        charPool.append(numberChars)
+        requiredChars.add(numberChars.random())
+    }
+    if (useSymbols) {
+        charPool.append(symbolChars)
+        requiredChars.add(symbolChars.random())
+    }
+
+    val remainingLength = length - requiredChars.size
+    val randomChars = (1..remainingLength).map { charPool.toString().random() }
+
+    val passwordChars = (requiredChars + randomChars).toMutableList()
+    passwordChars.shuffle(SecureRandom())
+
+    return passwordChars.joinToString("")
+}
+
+private fun estimatePasswordStrength(password: String): String {
+    if (password.isEmpty()) return "N/A"
+
+    var poolSize = 0
+    if (password.any { it in 'a'..'z' }) poolSize += 26
+    if (password.any { it in 'A'..'Z' }) poolSize += 26
+    if (password.any { it.isDigit() }) poolSize += 10
+    if (password.any { !it.isLetterOrDigit() }) poolSize += 32 // Approximate symbol count
+
+    if (poolSize == 0) return "Muy débil"
+
+    val entropy = password.length * log2(poolSize.toDouble())
+
+    // Assuming 10 trillion (10^13) guesses per second
+    val guessesPerSecond = BigDecimal("10000000000000")
+
+    val totalCombinations = try {
+        BigDecimal.valueOf(2.0.pow(entropy))
+    } catch (e: NumberFormatException) {
+        return "eones"
+    }
+
+    val secondsToCrack = totalCombinations.divide(guessesPerSecond, java.math.RoundingMode.HALF_UP)
+
+    val minute = BigDecimal(60)
+    val hour = minute * BigDecimal(60)
+    val day = hour * BigDecimal(24)
+    val year = day * BigDecimal("365.25")
+    val century = year * BigDecimal(100)
+    val millennium = century * BigDecimal(10)
+
+    return when {
+        secondsToCrack < BigDecimal(0.01) -> "instantáneamente"
+        secondsToCrack < minute -> "${secondsToCrack.toLong()} segundos"
+        secondsToCrack < hour -> "${secondsToCrack.divide(minute, 0, java.math.RoundingMode.HALF_UP).toLong()} minutos"
+        secondsToCrack < day -> "${secondsToCrack.divide(hour, 0, java.math.RoundingMode.HALF_UP).toLong()} horas"
+        secondsToCrack < year -> "${secondsToCrack.divide(day, 0, java.math.RoundingMode.HALF_UP).toLong()} días"
+        secondsToCrack < century -> "${secondsToCrack.divide(year, 0, java.math.RoundingMode.HALF_UP).toLong()} años"
+        secondsToCrack < millennium -> "${secondsToCrack.divide(century, 0, java.math.RoundingMode.HALF_UP).toLong()} siglos"
+        else -> "milenios"
+    }
+}
+
+@Composable
+fun GeneratePasswordDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var length by rememberSaveable { mutableStateOf(16f) }
+    var useUppercase by rememberSaveable { mutableStateOf(true) }
+    var useNumbers by rememberSaveable { mutableStateOf(true) }
+    var useSymbols by rememberSaveable { mutableStateOf(true) }
+    var generatedPassword by remember { mutableStateOf("") }
+    var strengthText by remember { mutableStateOf("") }
+    var triggerGeneration by remember { mutableStateOf(0) }
+
+    val clipboardManager: ClipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
+    LaunchedEffect(length, useUppercase, useNumbers, useSymbols, triggerGeneration) {
+        val newPassword = generateSecurePassword(length.toInt(), useUppercase, useNumbers, useSymbols)
+        generatedPassword = newPassword
+        strengthText = estimatePasswordStrength(newPassword)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Generador de Contraseñas") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = generatedPassword,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Row {
+                            IconButton(onClick = { triggerGeneration++ }) {
+                                Icon(Icons.Default.Refresh, "Regenerar")
+                            }
+                            IconButton(onClick = {
+                                clipboardManager.setText(AnnotatedString(generatedPassword))
+                                Toast.makeText(context, "Contraseña copiada", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.ContentCopy, "Copiar")
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = "Tiempo estimado para descifrar: $strengthText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(16.dp))
+
+                Text("Longitud: ${length.toInt()}", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = length,
+                    onValueChange = { length = it },
+                    valueRange = 8f..64f,
+                    steps = (64 - 8) - 1
+                )
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = useUppercase, onCheckedChange = { useUppercase = it })
+                        Text("Mayúsculas (A-Z)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = useNumbers, onCheckedChange = { useNumbers = it })
+                        Text("Números (0-9)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = useSymbols, onCheckedChange = { useSymbols = it })
+                        Text("Símbolos (!@#$...%)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(generatedPassword) }) {
+                Text("Usar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
     )
 }
 
@@ -451,3 +710,7 @@ fun AppLogo(modifier: Modifier = Modifier) {
         }
     }
 }
+
+
+
+
