@@ -72,7 +72,11 @@ dependencies {
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
+    // Para Biometría
+    implementation("androidx.biometric:biometric-ktx:1.2.0-alpha05")
 
+    // Para Seguridad y SharedPreferences cifradas (aunque aquí usamos Keystore manual)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // Icons
     implementation(libs.androidx.compose.material.icons.extended)
 }
