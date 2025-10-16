@@ -1,69 +1,33 @@
-# CHC PassManager
-CHC PassManager es una aplicación de gestión de contraseñas simple, segura y local para Android, creada con prácticas modernas de desarrollo de Android. Te permite almacenar y gestionar tus credenciales de forma segura en tu dispositivo, con todos los datos encriptados mediante una contraseña maestra.
-## 🚀 Características
-- **Almacenamiento Seguro**: Guarda nombres de usuario, contraseñas, URLs y notas de forma segura.
-- **Cifrado Local**: Todos los datos se cifran localmente en el dispositivo utilizando AES-GCM. Nada se envía a la nube.
-- **UI Moderna**: Interfaz de usuario sencilla e intuitiva creada con Jetpack Compose.
-- **Gestión de Entradas**: Añade, visualiza y elimina entradas de contraseñas.
-- **Lista Dinámica**: Muestra una lista de contraseñas con detalles expandibles.
-- **Pantalla de Bienvenida**: Una pantalla de bienvenida con una animación de logo personalizada.
-## 🛠️ Tech Stack y Arquitectura
-Este proyecto demuestra un conjunto de herramientas y patrones modernos para el desarrollo de Android.
-- **Lenguaje**: **Kotlin** como único lenguaje de programación.
-- **UI**: **Jetpack Compose** para una UI declarativa y reactiva.
-- **Arquitectura**: Sigue un patrón de arquitectura limpia en capas dentro de un único módulo:
-  - **Capa de UI (Presentación)**: `Activity` y `Composables` que muestran los datos y envían eventos de usuario.
-  - **Capa de ViewModel**: `MainViewModel` para gestionar el estado de la UI y la lógica de negocio.
-  - **Capa de Repositorio**: `PasswordRepository` que media entre las fuentes de datos y el resto de la app.
-  - **Capa de Datos**: **Room** para la persistencia en una base de datos local (`AppDatabase`, `DAO`, `Entity`).
-- **Componentes Principales de Jetpack**:
-  - **Coroutines y Flow**: Para la programación asíncrona y reactiva.
-  - **Room**: Para la persistencia de datos local.
-  - **Lifecycle**: Para gestionar el ciclo de vida de los componentes de la UI (`ViewModel`, `collectAsStateWithLifecycle`).
-  - **Navigation for Compose**: Para gestionar la navegación dentro de la aplicación.
-- **Seguridad**:
-  - **Java Cryptography Architecture (JCA)**: Para el cifrado y descifrado de datos con `AES/GCM` y derivación de claves con `PBKDF2`.
-## 📸 Screenshots
-*(Aquí puedes añadir capturas de pantalla de tu aplicación para hacer el README más atractivo)*
-| Pantalla de Bienvenida | Pantalla Principal |
-| :---: | :---: |
-| *[Tu captura aquí]* | *[Tu captura aquí]* |
-## ⚙️ Configuración y Puesta en Marcha
-Para ejecutar este proyecto en tu máquina local, sigue estos pasos:
-1. **Clona el repositorio**:
-   ```bash
-   git clone https://github.com/tu-usuario/CHCPassManager.git
-   ```
-2. **Abre en Android Studio**:
-   - Abre la última versión estable de Android Studio.
-   - Selecciona `File > Open` y navega hasta el directorio del proyecto clonado.
-3. **Sincroniza Gradle**:
-   - Android Studio sincronizará automáticamente los archivos de Gradle. Si no lo hace, haz clic en `File > Sync Project with Gradle Files`.
-4. **Ejecuta la aplicación**:
-   - Selecciona un emulador o conecta un dispositivo físico.
-   - Haz clic en el botón `Run 'app'` (▶️).
-## 📖 Cómo Usar la App
-1.  Al iniciar la app por primera vez, verás una pantalla de bienvenida.
-2.  Haz clic en **"Crear Baúl de Contraseñas"** para continuar.
-3.  La aplicación inicializará una bóveda segura para tus contraseñas.
-4.  Haz clic en el botón flotante `+` para añadir una nueva entrada.
-5.  Rellena los detalles (título, usuario, contraseña, etc.) y haz clic en **"Guardar"**.
-6.  Tu nueva entrada aparecerá en la lista. Toca una entrada para expandirla y ver los detalles, incluida la contraseña descifrada.
-7.  Para eliminar una entrada, haz clic en el icono de la papelera.
-## ⚠️ Nota de Seguridad Importante
-Esta aplicación está diseñada como una **demostración de prácticas de desarrollo de Android y no es segura para uso en producción** en su estado actual. La contraseña maestra y la "sal" criptográfica están **hardcodeadas** (escritas directamente en el código) en el composable `PasswordManagerScreen`.
-```kotlin
-// NO HACER ESTO EN PRODUCCIÓN
-val masterPassword = "SuperPassword123!".toCharArray()
-val salt = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4".toByteArray()
-```
-Para una aplicación real, necesitarías implementar un mecanismo seguro para que el usuario establezca y gestione su propia contraseña maestra, y generar y almacenar la "sal" de forma segura utilizando el **Android Keystore System**.
-## 🔮 Posibles Mejoras Futuras
-- [ ] Implementar una pantalla de inicio de sesión segura para la contraseña maestra.
-- [ ] Almacenar la "sal" criptográfica de forma segura utilizando Android Keystore.
-- [ ] Implementar autenticación biométrica (huella dactilar/desbloqueo facial).
-- [ ] Añadir funcionalidad de búsqueda y filtrado.
-- [ ] Implementar la funcionalidad de copia de seguridad y restauración (cifrada) de la base de datos.
-- [ ] Permitir la categorización de contraseñas.
-## 📄 Licencia
-Distribuido bajo la Licencia MIT. Consulta el archivo `LICENSE` para más información.
+CHC PassManager
+Cyber Haute Couture: Seguridad a la medida de tu vida digital.
+CHC PassManager es un gestor de contraseñas moderno y seguro para Android, diseñado con un enfoque en la simplicidad y una seguridad robusta. La aplicación está dirigida a usuarios que buscan una forma fácil de gestionar sus credenciales sin comprometer la protección, gracias a su arquitectura de seguridad de múltiples capas.
+✨ Características Principales
+🔐 Almacenamiento Cifrado: Todas tus contraseñas y datos sensibles se guardan localmente utilizando el robusto cifrado AES-256 GCM.
+🛡️ Flujo de Autenticación Avanzado:
+Configuración Única: Establece un PIN de 4 dígitos y una Contraseña Maestra la primera vez que usas la app.
+Desbloqueo Rápido: Accede a la aplicación de forma segura y rápida usando tu PIN o tu huella dactilar (autenticación biométrica).
+Descifrado Bajo Demanda: La Contraseña Maestra es necesaria para descifrar el baúl de contraseñas, asegurando que solo tú puedas ver tus datos.
+🔑 Generador de Contraseñas:
+Crea contraseñas fuertes y aleatorias con opciones personalizables (longitud, uso de mayúsculas, números y símbolos).
+Incluye un estimador de fortaleza que calcula el tiempo aproximado que se tardaría en descifrar la contraseña generada.
+🔒 Seguridad Anclada al Hardware: El salt criptográfico, esencial para la seguridad de tus datos, se cifra y se almacena en el Android KeyStore. Esto lo protege a nivel de hardware, haciéndolo inaccesible incluso en dispositivos comprometidos.
+📱 Interfaz Nativa y Moderna: La interfaz de usuario está construida 100% con Jetpack Compose, ofreciendo una experiencia fluida, reactiva y visualmente atractiva.
+📋 Gestión Sencilla: Añade, visualiza y elimina tus credenciales de forma intuitiva. Copia contraseñas al portapapeles con un solo toque.
+🚀 Arquitectura de Seguridad
+La seguridad de CHC PassManager se basa en una separación clara entre el desbloqueo de la aplicación y el descifrado de los datos.
+Configuración Inicial: El usuario crea un PIN y una Contraseña Maestra. En este momento, se genera un salt único y aleatorio. Este salt se cifra con una clave almacenada en el Android KeyStore y se guarda en las preferencias seguras de la aplicación. El PIN se guarda como un hash. La Contraseña Maestra nunca se almacena en el dispositivo.
+Desbloqueo de la App: Para acceder, el usuario se autentica con su PIN (que se verifica contra el hash guardado) o con su huella dactilar. Este paso solo desbloquea la interfaz de usuario.
+Descifrado del Baúl: Una vez dentro, se le solicita al usuario su Contraseña Maestra. Esta contraseña, combinada con el salt (que se descifra de forma segura usando la clave del KeyStore), se utiliza para derivar la clave de cifrado AES-256 y finalmente acceder a las contraseñas.
+Este modelo garantiza que aunque alguien consiga acceder a tu dispositivo y superar el PIN, no podrá ver tus contraseñas sin la Contraseña Maestra.
+🛠️ Stack Tecnológico
+Lenguaje: 100% Kotlin
+Interfaz de Usuario: Jetpack Compose
+Arquitectura: MVVM (ViewModel, Repository, Coroutines, Flow)
+Navegación: Navigation Compose
+Base de Datos Local: Room
+Seguridad:
+AndroidX Biometric
+Android KeyStore System
+Criptografía nativa de Java (JCA) para AES-256 y PBKDF2.
+📄 Licencia
+Este proyecto se distribuye bajo la Licencia MIT. Consulta el archivo LICENSE para más detalles.
